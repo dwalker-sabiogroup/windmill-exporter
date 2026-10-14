@@ -1,0 +1,90 @@
+name: Release image
+on:
+  push:
+    tags: ['**']
+permissions: {}
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  authorize:
+    name: Validate release tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      image: ${{ steps.tag.outputs.image }}
+      tag: ${{ steps.tag.outputs.tag }}
+      latest: ${{ steps.tag.outputs.latest }}
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate tag and protected-main ancestry
+        id: tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || [[ "$RELEASE_TAG" == latest ]] || [[ "$RELEASE_TAG" == sha-* ]]; then
+            echo '::error::Tag must be a valid Docker tag; latest and sha-* are reserved.'
+            exit 1
+          fi
+          git merge-base --is-ancestor "$COMMIT_SHA" origin/main
+          printf 'image=ghcr.io/%s\n' "${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          printf 'tag=%s\n' "$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          if [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo 'latest=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'latest=false' >> "$GITHUB_OUTPUT"
+          fi
+  validate:
+    name: Release checks
+    needs: authorize
+    uses: $/.github/workflows/ci.yaml
+    permissions:
+      actions: read # Allows the called security job to inspect action metadata.
+      contents: read
+  publish:
+    name: Publish validated image
+    needs: [authorize, validate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write # Pushes the validated image to GHCR; no repository code runs here.
+    steps:
+      - name: Download image from this run
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: release-image
+          path: /tmp/release-image
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish release and commit tags
+        env:
+          IMAGE: ${{ needs.authorize.outputs.image }}
+          RELEASE_TAG: ${{ needs.authorize.outputs.tag }}
+          PUBLISH_LATEST: ${{ needs.authorize.outputs.latest }}
+          COMMIT_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          docker load --input /tmp/release-image/windmill-exporter-image.tar
+          test "$(docker inspect --format '{{.Os}}/{{.Architecture}}' windmill-exporter:ci)" = linux/amd64
+          docker tag windmill-exporter:ci "$IMAGE:$RELEASE_TAG"
+          docker tag windmill-exporter:ci "$IMAGE:sha-$COMMIT_SHA"
+          docker push "$IMAGE:$RELEASE_TAG"
+          docker push "$IMAGE:sha-$COMMIT_SHA"
+          if [[ "$PUBLISH_LATEST" == true ]]; then
+            docker tag windmill-exporter:ci "$IMAGE:latest"
+            docker push "$IMAGE:latest"
+          fi

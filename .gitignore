@@ -7,6 +7,7 @@
 *.dll
 *.so
 *.dylib
+/windmill-exporter
 
 # Test binary, built with `go test -c`
 *.test
@@ -27,6 +28,7 @@ go.work.sum
 
 # env file
 .env
+.env.*
 
 # Editor/IDE
 # .idea/
