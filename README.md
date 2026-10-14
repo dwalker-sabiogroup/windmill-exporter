@@ -62,6 +62,7 @@ or your shell can supply environment variables.
 | `EXPORTER_SHUTDOWN_TIMEOUT` | `20s` with defaults | Total termination budget; defaults to scrape timeout + drain delay + 5s, maximum `10m` |
 | `EXPORTER_LISTEN_ADDRESS` | `:9108` | Listening host and port |
 | `EXPORTER_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
+| `EXPORTER_PPROF_ENABLED` | `false` | Enable standard Go pprof endpoints on the existing HTTP listener |
 | `EXPORTER_MAX_RESPONSE_BYTES` | `4194304` | Limit per response; maximum 64 MiB |
 | `WINDMILL_RUNNABLE_WINDOW` | `24h` | Whole-second lookback between `1h` and `720h` |
 | `WINDMILL_RUNNABLE_LIMIT` | `100` | Top-N runnable rows, between 1 and 1000 |
@@ -109,6 +110,30 @@ sequential reads per workspace (success, failure, and tags); workspace queue add
 one more. Limit workspace count and lookback on large instances, and adjust the
 overall scrape/Prometheus timeouts if necessary. No jobs, logs or results are scanned.
 
+## Profiling
+
+Set `EXPORTER_PPROF_ENABLED=true` and restart to register Go's standard
+`/debug/pprof/` endpoints on the same port as metrics and probes (9108 by default).
+When disabled, profiling routes return 404. No additional listener or port is opened.
+
+```sh
+EXPORTER_PPROF_ENABLED=true go run ./cmd/windmill-exporter
+go tool pprof -top 'http://127.0.0.1:9108/debug/pprof/profile?seconds=10'
+go tool pprof -top http://127.0.0.1:9108/debug/pprof/heap
+```
+
+The index lists runtime profiles; CPU profile, heap/allocations, goroutine, symbol,
+command-line and execution-trace handlers use Go's standard implementation. Block
+and mutex event sampling retain Go's defaults; enabling endpoints does not enable
+extra sampling globally. Timed profiles use the standard handler's extended write
+deadline, but remain subject to the overall process shutdown budget.
+
+Profiling has runtime overhead and exposes sensitive diagnostic information.
+Anyone who can reach the application listener can access pprof when enabled;
+there is no built-in authentication. Keep it disabled normally, restrict access,
+and use an authenticated proxy or controlled port-forward for diagnostics. See
+[docs/kubernetes.md](docs/kubernetes.md) for the Kubernetes workflow.
+
 ## Endpoints and compatibility
 
 | Collector | Endpoint | Authentication |
@@ -142,8 +167,8 @@ scrape_configs:
 ```
 
 In GKE, inject `WINDMILL_TOKEN` from a Kubernetes Secret, run on amd64 nodes, and
-use `/startupz`, `/readyz`, and `/livez` on port 9108 for startup, readiness,
-and liveness probes. `/healthz` remains a liveness alias. Probes never query Windmill;
+use `/healthz`, `/livez`, and `/readyz` on port 9108 for startup, liveness,
+and readiness probes respectively. Probes never query Windmill;
 readiness becomes false during graceful shutdown, not when an upstream collector
 fails. New scrapes are rejected while draining, and accepted scrapes can finish
 within the shutdown budget. See [docs/kubernetes.md](docs/kubernetes.md) and

@@ -15,7 +15,7 @@ func (probes *Probes) Start() { probes.started.Store(true) }
 func (probes *Probes) Drain() { probes.draining.Store(true) }
 
 func (probes *Probes) Register(mux *http.ServeMux) {
-	mux.HandleFunc("GET /startupz", func(writer http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /healthz", func(writer http.ResponseWriter, _ *http.Request) {
 		probeResponse(writer, probes.started.Load())
 	})
 	mux.HandleFunc("GET /readyz", func(writer http.ResponseWriter, _ *http.Request) {
@@ -23,7 +23,6 @@ func (probes *Probes) Register(mux *http.ServeMux) {
 	})
 	liveness := func(writer http.ResponseWriter, _ *http.Request) { probeResponse(writer, true) }
 	mux.HandleFunc("GET /livez", liveness)
-	mux.HandleFunc("GET /healthz", liveness)
 }
 
 func probeResponse(writer http.ResponseWriter, healthy bool) {

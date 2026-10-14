@@ -22,19 +22,19 @@ kubectl -n YOUR_NAMESPACE apply -f deploy/kubernetes.yaml
 
 | Endpoint | Kubernetes Probe | Healthy When |
 | --- | --- | --- |
-| `/startupz` | Startup | Configuration, client, routes and listener have initialized |
+| `/healthz` | Startup | Configuration, client, routes and listener have initialized |
 | `/readyz` | Readiness | Startup is complete and the exporter is not draining |
 | `/livez` | Liveness | The exporter HTTP handler is responding |
 
 Healthy probes return HTTP 200; startup/readiness return 503 when their conditions
-are not met. `/healthz` remains a liveness alias for existing deployments.
+are not met. `/startupz` is no longer registered.
 All probes are cheap, uncached and independent of Windmill/API credentials/network
 availability. A Windmill outage must not cause exporter restart loops or remove
 the exporter from monitoring. Alert on collector/scrape metrics for upstream faults.
 
 ## Termination
 
-SIGTERM marks the exporter unready and rejects new `/metrics` requests with 503.
+SIGTERM marks the exporter unready and rejects new scrapes/profiling requests with 503.
 It waits `EXPORTER_DRAIN_DELAY` (default 5s) for readiness/endpoint propagation,
 then drains accepted HTTP requests. Active scrapes retain their request context
 until completion or the total shutdown deadline. A second signal forces normal
@@ -68,3 +68,31 @@ through `SSL_CERT_FILE` when necessary. Configure your Prometheus discovery or a
 ServiceMonitor/PodMonitor separately; this example does not install an operator.
 Start with one replica to avoid duplicate upstream collection. For HA replicas,
 retain instance labels and avoid summing duplicate Windmill snapshot gauges.
+
+## Profiling
+
+The example sets `EXPORTER_PPROF_ENABLED=false`. For a diagnostic session, set it
+to `"true"` in the Deployment and wait for rollout. The standard `/debug/pprof/`
+routes appear on the same application port; probes and metrics continue to work.
+
+```sh
+kubectl -n YOUR_NAMESPACE port-forward deployment/windmill-exporter 9108:9108
+```
+
+In another terminal:
+
+```sh
+go tool pprof -top 'http://127.0.0.1:9108/debug/pprof/profile?seconds=10'
+go tool pprof -top http://127.0.0.1:9108/debug/pprof/heap
+curl --fail 'http://127.0.0.1:9108/debug/pprof/trace?seconds=2' -o trace.out
+go tool trace trace.out
+```
+
+Set enablement back to `"false"` and roll out when finished. Profiling is unauthenticated
+and can reveal sensitive process information; enabling it makes it available to
+every client that can reach the exporter port, not only the port-forward. NetworkPolicy
+cannot distinguish HTTP paths on the same port. Use restricted ingress and an
+authenticated proxy when path-specific access control is required. Use short
+captures or increase both the exporter shutdown timeout and Pod termination grace
+for longer profiles. No profiling artifacts need to be written inside the read-only
+container; the Go tools/curl save them on the client.

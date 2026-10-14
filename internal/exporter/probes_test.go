@@ -18,19 +18,22 @@ func TestProbeLifecycle(t *testing.T) {
 			t.Fatalf("%s: status=%d headers=%v", path, response.Code, response.Header())
 		}
 	}
-	check("/startupz", 503)
+	check("/healthz", 503)
 	check("/readyz", 503)
 	check("/livez", 200)
-	check("/healthz", 200)
 	probes.Start()
-	for _, path := range []string{"/startupz", "/readyz", "/livez", "/healthz"} {
+	for _, path := range []string{"/healthz", "/readyz", "/livez"} {
 		check(path, 200)
 	}
 	probes.Drain()
 	check("/readyz", 503)
-	check("/startupz", 200)
 	check("/livez", 200)
 	check("/healthz", 200)
+	removed := httptest.NewRecorder()
+	mux.ServeHTTP(removed, httptest.NewRequest(http.MethodGet, "/startupz", nil))
+	if removed.Code != http.StatusNotFound {
+		t.Fatal("obsolete startup route is still registered")
+	}
 	response := httptest.NewRecorder()
 	mux.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/readyz", nil))
 	if response.Code != http.StatusMethodNotAllowed {

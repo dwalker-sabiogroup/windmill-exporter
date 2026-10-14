@@ -73,9 +73,10 @@ jobs:
           container="$(docker run -d --read-only --cap-drop ALL --security-opt no-new-privileges -p 127.0.0.1:9108:9108 -e WINDMILL_URL=http://127.0.0.1:1 -e WINDMILL_COLLECTORS=health_status windmill-exporter:ci)"
           trap 'docker rm -f "$container" >/dev/null' EXIT
           curl --fail --silent --show-error --retry 5 --retry-connrefused --retry-delay 1 http://127.0.0.1:9108/healthz
-          for path in startupz readyz livez; do
+          for path in readyz livez; do
             curl --fail --silent --show-error "http://127.0.0.1:9108/$path"
           done
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:9108/debug/pprof/)" = 404
           docker stop --time 30 "$container"
           test "$(docker inspect --format '{{.State.ExitCode}}' "$container")" = 0
       - name: Save validated release image

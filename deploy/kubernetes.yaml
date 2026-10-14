@@ -54,6 +54,8 @@ spec:
               value: 5s
             - name: EXPORTER_SHUTDOWN_TIMEOUT
               value: 20s
+            - name: EXPORTER_PPROF_ENABLED
+              value: "false"
             - name: OTEL_SERVICE_INSTANCE_ID
               valueFrom:
                 fieldRef:
@@ -66,7 +68,7 @@ spec:
               value: 96MiB
           startupProbe:
             httpGet:
-              path: /startupz
+              path: /healthz
               port: http-metrics
             periodSeconds: 2
             timeoutSeconds: 1

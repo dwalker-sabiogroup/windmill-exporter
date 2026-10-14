@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -48,8 +49,13 @@ func run() error {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", exporter.NewHandler(configuration, client, logger, version))
 	probes.Register(mux)
+	exporter.RegisterProfiling(mux, configuration.PprofEnabled)
+	if configuration.PprofEnabled {
+		logger.Warn("pprof enabled on exporter listener; restrict access to diagnostic endpoints")
+	}
 	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path == "/metrics" && ctx.Err() != nil {
+		profiling := configuration.PprofEnabled && strings.HasPrefix(request.URL.Path, "/debug/pprof/")
+		if (request.URL.Path == "/metrics" || profiling) && ctx.Err() != nil {
 			http.Error(writer, "exporter is draining", http.StatusServiceUnavailable)
 			return
 		}

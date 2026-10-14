@@ -102,9 +102,12 @@ func TestExporterLifecycle(t *testing.T) {
 			t.Fatalf("%s: status=%d, want=%d", path, response.StatusCode, status)
 		}
 	}
-	for _, path := range []string{"/startupz", "/readyz", "/livez"} {
+	for _, path := range []string{"/healthz", "/readyz", "/livez"} {
 		checkEndpoint(path, 200)
 	}
+	checkEndpoint("/startupz", 404)
+	checkEndpoint("/debug/pprof/", 404)
+	checkEndpoint("/debug/pprof/heap", 404)
 	if upstreamCalls.Load() != 0 {
 		t.Fatal("probes queried Windmill")
 	}
@@ -157,7 +160,7 @@ func TestExporterLifecycle(t *testing.T) {
 		}
 	}
 	checkEndpoint("/livez", 200)
-	checkEndpoint("/startupz", 200)
+	checkEndpoint("/healthz", 200)
 	checkEndpoint("/metrics", 503)
 	release <- struct{}{}
 	select {

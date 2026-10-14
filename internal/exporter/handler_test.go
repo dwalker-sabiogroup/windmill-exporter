@@ -46,6 +46,26 @@ func fixtureHandler(t *testing.T, collectors string, upstream http.HandlerFunc) 
 	return NewHandler(configuration, client, slog.New(slog.NewJSONHandler(io.Discard, nil)), "test")
 }
 
+func TestTimedProfilingWriteDeadline(t *testing.T) {
+	mux := http.NewServeMux()
+	RegisterProfiling(mux, true)
+	server := httptest.NewUnstartedServer(mux)
+	server.Config.WriteTimeout = 500 * time.Millisecond
+	server.Start()
+	defer server.Close()
+	client := &http.Client{Timeout: 5 * time.Second}
+	defer client.CloseIdleConnections()
+	response, err := client.Get(server.URL + "/debug/pprof/profile?seconds=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if err != nil || response.StatusCode != 200 || len(body) < 2 || body[0] != 0x1f || body[1] != 0x8b {
+		t.Fatalf("timed profile failed: status=%d bytes=%d err=%v", response.StatusCode, len(body), err)
+	}
+}
+
 func scrape(handler *Handler) *httptest.ResponseRecorder {
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/metrics", nil))

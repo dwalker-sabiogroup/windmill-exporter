@@ -18,6 +18,7 @@ func TestParse(t *testing.T) {
 		{"EXPORTER_DRAIN_DELAY", "-1s"}, {"EXPORTER_DRAIN_DELAY", "31s"},
 		{"EXPORTER_SHUTDOWN_TIMEOUT", "0s"}, {"EXPORTER_SHUTDOWN_TIMEOUT", "15s"},
 		{"EXPORTER_SHUTDOWN_TIMEOUT", "11m"},
+		{"EXPORTER_PPROF_ENABLED", "invalid"},
 		{"EXPORTER_LOG_LEVEL", "trace"}, {"EXPORTER_LISTEN_ADDRESS", "bad"},
 		{"EXPORTER_LISTEN_ADDRESS", ":0"}, {"EXPORTER_MAX_RESPONSE_BYTES", "0"},
 		{"WINDMILL_RUNNABLE_WINDOW", "30m"}, {"WINDMILL_RUNNABLE_WINDOW", "721h"},
@@ -68,6 +69,9 @@ func TestDefaultsAndPublicOnly(t *testing.T) {
 	if configuration.DrainDelay != 5*time.Second || configuration.ShutdownTimeout != 20*time.Second {
 		t.Fatal("incorrect shutdown defaults")
 	}
+	if configuration.PprofEnabled {
+		t.Fatal("profiling must be disabled by default")
+	}
 }
 
 func TestOperationalCollectors(t *testing.T) {
@@ -81,6 +85,8 @@ func TestOperationalCollectors(t *testing.T) {
 			return "workers,job_outcomes,workspace_queue"
 		case "WINDMILL_WORKSPACES":
 			return "test, another"
+		case "EXPORTER_PPROF_ENABLED":
+			return "true"
 		default:
 			return ""
 		}
@@ -90,5 +96,8 @@ func TestOperationalCollectors(t *testing.T) {
 	}
 	if len(configuration.Workspaces) != 2 || configuration.Workspaces[1] != "another" || configuration.WorkerLimit != 1000 || configuration.JobWindow != time.Hour || configuration.JobTagLimit != 100 {
 		t.Fatal("incorrect operational defaults")
+	}
+	if !configuration.PprofEnabled {
+		t.Fatal("profiling enablement was ignored")
 	}
 }

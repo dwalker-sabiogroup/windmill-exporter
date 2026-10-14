@@ -23,6 +23,7 @@ type Config struct {
 	ShutdownTimeout     time.Duration
 	ListenAddress       string
 	LogLevel            slog.Level
+	PprofEnabled        bool
 	MaxResponseBytes    int64
 	RunnableWindow      time.Duration
 	RunnableLimit       int
@@ -62,6 +63,10 @@ func Parse(getenv func(string) string) (Config, error) {
 		Environment:         getenv("OTEL_DEPLOYMENT_ENVIRONMENT_NAME"),
 	}
 	var err error
+	configuration.PprofEnabled, err = strconv.ParseBool(value("EXPORTER_PPROF_ENABLED", "false"))
+	if err != nil {
+		return Config{}, fmt.Errorf("EXPORTER_PPROF_ENABLED must be a boolean")
+	}
 	configuration.URL, err = url.Parse(getenv("WINDMILL_URL"))
 	if err != nil || configuration.URL.Hostname() == "" || (configuration.URL.Scheme != "http" && configuration.URL.Scheme != "https") || configuration.URL.User != nil || configuration.URL.RawQuery != "" || configuration.URL.ForceQuery || configuration.URL.Fragment != "" {
 		return Config{}, fmt.Errorf("WINDMILL_URL must be an HTTP(S) instance root without credentials, query or fragment")
