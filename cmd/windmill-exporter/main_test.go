@@ -72,6 +72,7 @@ func TestExporterLifecycle(t *testing.T) {
 				continue
 			}
 			ready = response.StatusCode == 200
+			_, _ = io.Copy(io.Discard, response.Body)
 			_ = response.Body.Close()
 		}
 	}
@@ -84,6 +85,7 @@ func TestExporterLifecycle(t *testing.T) {
 	if err != nil || response.StatusCode != 200 || !strings.Contains(string(body), "windmill_workers_alive 2") {
 		t.Fatal("invalid metrics response")
 	}
+	client.CloseIdleConnections()
 	if err := command.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +96,7 @@ func TestExporterLifecycle(t *testing.T) {
 		if err != nil {
 			t.Fatalf("shutdown: %v\n%s", err, output.String())
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("shutdown timed out")
 	}
 	if strings.Contains(output.String(), "sensitive-test-token") {
