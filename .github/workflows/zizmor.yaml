@@ -1,0 +1,24 @@
+name: GitHub Workflow Security
+on:
+  workflow_call:
+permissions: {}
+jobs:
+  zizmor:
+    name: workflow-security-zizmor
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read # Required for zizmor action metadata inspection.
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Audit workflows
+        uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
+        with:
+          advanced-security: false
+          inputs: .github/workflows
+          persona: pedantic
+          version: v1.30.1
