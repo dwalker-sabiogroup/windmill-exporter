@@ -19,6 +19,8 @@ type Config struct {
 	Collectors          []string
 	Timeout             time.Duration
 	ScrapeTimeout       time.Duration
+	DrainDelay          time.Duration
+	ShutdownTimeout     time.Duration
 	ListenAddress       string
 	LogLevel            slog.Level
 	MaxResponseBytes    int64
@@ -132,6 +134,14 @@ func Parse(getenv func(string) string) (Config, error) {
 	}
 	if configuration.ScrapeTimeout <= configuration.Timeout || configuration.ScrapeTimeout > 5*time.Minute {
 		return Config{}, fmt.Errorf("EXPORTER_SCRAPE_TIMEOUT must exceed WINDMILL_TIMEOUT and be at most 5m")
+	}
+	configuration.DrainDelay, err = time.ParseDuration(value("EXPORTER_DRAIN_DELAY", "5s"))
+	if err != nil || configuration.DrainDelay < 0 || configuration.DrainDelay > 30*time.Second {
+		return Config{}, fmt.Errorf("EXPORTER_DRAIN_DELAY must be between 0s and 30s")
+	}
+	configuration.ShutdownTimeout, err = time.ParseDuration(value("EXPORTER_SHUTDOWN_TIMEOUT", (configuration.ScrapeTimeout + configuration.DrainDelay + 5*time.Second).String()))
+	if err != nil || configuration.ShutdownTimeout <= configuration.ScrapeTimeout+configuration.DrainDelay || configuration.ShutdownTimeout > 10*time.Minute {
+		return Config{}, fmt.Errorf("EXPORTER_SHUTDOWN_TIMEOUT must exceed scrape timeout plus drain delay and be at most 10m")
 	}
 	if configuration.RunnableWindow < time.Hour || configuration.RunnableWindow > 30*24*time.Hour || configuration.RunnableWindow%time.Second != 0 {
 		return Config{}, fmt.Errorf("WINDMILL_RUNNABLE_WINDOW must be whole seconds between 1h and 720h")

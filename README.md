@@ -58,6 +58,8 @@ or your shell can supply environment variables.
 | `WINDMILL_COLLECTORS` | `health_status,health_detailed,queue_status` | Comma-separated enabled collectors |
 | `WINDMILL_TIMEOUT` | `5s` | Per-request timeout |
 | `EXPORTER_SCRAPE_TIMEOUT` | `10s` | Overall collection timeout; greater than request timeout, at most `5m` |
+| `EXPORTER_DRAIN_DELAY` | `5s` | Unready interval before closing the listener, between `0s` and `30s` |
+| `EXPORTER_SHUTDOWN_TIMEOUT` | `20s` with defaults | Total termination budget; defaults to scrape timeout + drain delay + 5s, maximum `10m` |
 | `EXPORTER_LISTEN_ADDRESS` | `:9108` | Listening host and port |
 | `EXPORTER_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `EXPORTER_MAX_RESPONSE_BYTES` | `4194304` | Limit per response; maximum 64 MiB |
@@ -132,15 +134,22 @@ endpoint is used. The checked contracts and metric meanings are documented in
 
 ```yaml
 scrape_configs:
-	- job_name: windmill
-		scrape_interval: 15s
-		scrape_timeout: 12s
-		static_configs:
-			- targets: [windmill-exporter:9108]
+  - job_name: windmill
+    scrape_interval: 15s
+    scrape_timeout: 12s
+    static_configs:
+      - targets: [windmill-exporter:9108]
 ```
 
 In GKE, inject `WINDMILL_TOKEN` from a Kubernetes Secret, run on amd64 nodes, and
-use `/healthz` on port 9108 for probes. `/healthz` checks exporter liveness only.
+use `/startupz`, `/readyz`, and `/livez` on port 9108 for startup, readiness,
+and liveness probes. `/healthz` remains a liveness alias. Probes never query Windmill;
+readiness becomes false during graceful shutdown, not when an upstream collector
+fails. New scrapes are rejected while draining, and accepted scrapes can finish
+within the shutdown budget. See [docs/kubernetes.md](docs/kubernetes.md) and
+[deploy/kubernetes.yaml](deploy/kubernetes.yaml) for the restricted-security example
+and termination/resource guidance. Keep the Pod termination grace longer than the
+exporter's total shutdown timeout.
 Keep `/metrics` private: the exporter listener has no inbound authentication or
 TLS, and metrics may reveal worker tags and runnable paths. Use network policies
 or an authenticated proxy where appropriate. One active scrape is allowed per

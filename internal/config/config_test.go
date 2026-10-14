@@ -15,6 +15,9 @@ func TestParse(t *testing.T) {
 		{"WINDMILL_COLLECTORS", "queue_status,queue_counts"}, {"WINDMILL_COLLECTORS", "queue_status,queue_status"},
 		{"WINDMILL_COLLECTORS", "unknown"}, {"WINDMILL_TIMEOUT", "-1s"},
 		{"EXPORTER_SCRAPE_TIMEOUT", "5s"}, {"EXPORTER_SCRAPE_TIMEOUT", "6m"},
+		{"EXPORTER_DRAIN_DELAY", "-1s"}, {"EXPORTER_DRAIN_DELAY", "31s"},
+		{"EXPORTER_SHUTDOWN_TIMEOUT", "0s"}, {"EXPORTER_SHUTDOWN_TIMEOUT", "15s"},
+		{"EXPORTER_SHUTDOWN_TIMEOUT", "11m"},
 		{"EXPORTER_LOG_LEVEL", "trace"}, {"EXPORTER_LISTEN_ADDRESS", "bad"},
 		{"EXPORTER_LISTEN_ADDRESS", ":0"}, {"EXPORTER_MAX_RESPONSE_BYTES", "0"},
 		{"WINDMILL_RUNNABLE_WINDOW", "30m"}, {"WINDMILL_RUNNABLE_WINDOW", "721h"},
@@ -61,6 +64,9 @@ func TestDefaultsAndPublicOnly(t *testing.T) {
 	}
 	if configuration.RunnableQuery().Get("window_secs") != "86400" {
 		t.Fatal("incorrect window")
+	}
+	if configuration.DrainDelay != 5*time.Second || configuration.ShutdownTimeout != 20*time.Second {
+		t.Fatal("incorrect shutdown defaults")
 	}
 }
 

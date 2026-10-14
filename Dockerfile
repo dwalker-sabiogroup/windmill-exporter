@@ -19,4 +19,5 @@ COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certifica
 COPY --from=build /out/windmill-exporter /windmill-exporter
 USER 65532:65532
 EXPOSE 9108
+STOPSIGNAL SIGTERM
 ENTRYPOINT ["/windmill-exporter"]

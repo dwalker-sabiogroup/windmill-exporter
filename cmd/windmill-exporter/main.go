@@ -42,24 +42,32 @@ func run() error {
 	defer client.Close()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	requests, cancelRequests := context.WithCancel(context.Background())
+	defer cancelRequests()
+	probes := &exporter.Probes{}
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", exporter.NewHandler(configuration, client, logger, version))
-	mux.HandleFunc("GET /healthz", func(writer http.ResponseWriter, _ *http.Request) {
-		writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = writer.Write([]byte("ok\n"))
+	probes.Register(mux)
+	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/metrics" && ctx.Err() != nil {
+			http.Error(writer, "exporter is draining", http.StatusServiceUnavailable)
+			return
+		}
+		mux.ServeHTTP(writer, request)
 	})
 	server := &http.Server{
-		Addr: configuration.ListenAddress, Handler: mux,
+		Addr: configuration.ListenAddress, Handler: handler,
 		ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelError),
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second,
 		WriteTimeout: configuration.ScrapeTimeout + 5*time.Second, IdleTimeout: 60 * time.Second,
 		MaxHeaderBytes: 16 * 1024,
-		BaseContext:    func(_ net.Listener) context.Context { return ctx },
+		BaseContext:    func(_ net.Listener) context.Context { return requests },
 	}
 	listener, err := net.Listen("tcp", server.Addr)
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}
+	probes.Start()
 	logger.Info("Exporter listening", "listen_address", server.Addr, "collectors", configuration.Collectors, "version", version)
 	finished := make(chan error, 1)
 	go func() { finished <- server.Serve(listener) }()
@@ -71,9 +79,21 @@ func run() error {
 		return nil
 	case <-ctx.Done():
 	}
-	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	probes.Drain()
+	stop()
+	logger.Info("Exporter draining", "drain_delay", configuration.DrainDelay.String(), "shutdown_timeout", configuration.ShutdownTimeout.String())
+	shutdown, cancel := context.WithTimeout(context.Background(), configuration.ShutdownTimeout)
 	defer cancel()
+	if configuration.DrainDelay > 0 {
+		timer := time.NewTimer(configuration.DrainDelay)
+		select {
+		case <-timer.C:
+		case <-shutdown.Done():
+		}
+		timer.Stop()
+	}
 	if err := server.Shutdown(shutdown); err != nil {
+		cancelRequests()
 		_ = server.Close()
 		return fmt.Errorf("shutdown: %w", err)
 	}
