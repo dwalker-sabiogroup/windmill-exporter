@@ -5,6 +5,13 @@ Metric names use seconds and bytes; absent data remains absent. Tags/runnables
 that disappear do not persist across scrapes. No source timestamps are attached
 to samples; the health check timestamp is a separate gauge.
 
+The standard Prometheus Go and process collectors are always enabled on
+`/metrics`. These describe the exporter itself, not Windmill: for example,
+`go_goroutines`, `go_memstats_alloc_bytes`, `process_cpu_seconds_total`,
+`process_resident_memory_bytes`, and `process_start_time_seconds`. Process
+metric availability depends on the operating system. `WINDMILL_COLLECTORS`
+only controls the upstream Windmill collectors.
+
 ## Catalogue
 
 | Metric | Meaning |

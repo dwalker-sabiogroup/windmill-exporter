@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -16,6 +17,9 @@ import (
 	"github.com/dwalker-sabiogroup/windmill-exporter/internal/windmill"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
+	"github.com/prometheus/common/expfmt"
+	"github.com/prometheus/common/model"
 )
 
 func fixtureHandler(t *testing.T, collectors string, upstream http.HandlerFunc) *Handler {
@@ -72,6 +76,46 @@ func scrape(handler *Handler) *httptest.ResponseRecorder {
 	return response
 }
 
+func gatherScrape(t *testing.T, response *httptest.ResponseRecorder) prometheus.Gatherer {
+	t.Helper()
+	if response.Code != http.StatusOK {
+		t.Fatalf("scrape returned %d: %s", response.Code, response.Body.String())
+	}
+	parser := expfmt.NewTextParser(model.UTF8Validation)
+	families, err := parser.TextToMetricFamilies(strings.NewReader(response.Body.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return prometheus.GathererFunc(func() ([]*dto.MetricFamily, error) {
+		metrics := make([]*dto.MetricFamily, 0, len(families))
+		for _, family := range families {
+			metrics = append(metrics, family)
+		}
+		return metrics, nil
+	})
+}
+
+func TestScrapeGoAndProcessMetrics(t *testing.T) {
+	handler := fixtureHandler(t, "queue_status", func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(writer, `[]`)
+	})
+	for range 2 {
+		metrics := gatherScrape(t, scrape(handler))
+		expectedMetrics := []string{"go_goroutines", "go_memstats_alloc_bytes", "windmill_exporter_scrape_success"}
+		if runtime.GOOS == "linux" {
+			expectedMetrics = append(expectedMetrics, "process_cpu_seconds_total", "process_resident_memory_bytes", "process_start_time_seconds")
+		}
+		for _, name := range expectedMetrics {
+			if count, err := testutil.GatherAndCount(metrics, name); err != nil || count != 1 {
+				t.Errorf("metric %s: count=%d err=%v", name, count, err)
+			}
+		}
+		if problems, err := testutil.GatherAndLint(metrics, expectedMetrics...); err != nil || len(problems) != 0 {
+			t.Fatalf("problems=%v err=%v", problems, err)
+		}
+	}
+}
+
 func TestScrapePartialFailureAndDisappearingTags(t *testing.T) {
 	var calls atomic.Int64
 	handler := fixtureHandler(t, "health_status,queue_status", func(writer http.ResponseWriter, request *http.Request) {
@@ -121,18 +165,21 @@ func TestRunnableUnitsAndQuery(t *testing.T) {
 		}
 		_, _ = io.WriteString(writer, `[{"workspace_id":"test","runnable_path":"f/task","worker_group":"default","job_count":2,"total_duration_ms":1500,"max_memory_peak":2048,"sum_memory_peak":3072,"memory_sample_count":2,"total_cpu_ms":750}]`)
 	})
-	response := scrape(handler)
-	for name, value := range map[string]string{"duration_seconds": "1.5", "cpu_seconds": "0.75", "memory_peak_bytes": "2.097152e+06", "memory_peak_sum_bytes": "3.145728e+06", "jobs": "2"} {
-		expected := fmt.Sprintf(`windmill_runnable_window_%s{windmill_runnable_path="f/task",windmill_worker_group="default",windmill_workspace_id="test"} %s`, name, value)
-		if !strings.Contains(response.Body.String(), expected) {
-			t.Errorf("missing %s\n%s", expected, response.Body.String())
+	metrics := gatherScrape(t, scrape(handler))
+	for _, metric := range []struct {
+		name, help, value string
+	}{
+		{"duration_seconds", "Sum of job durations in the selected window.", "1.5"},
+		{"cpu_seconds", "Sum of available job CPU time in the selected window.", "0.75"},
+		{"memory_peak_bytes", "Maximum reported job memory peak in the selected window.", "2097152"},
+		{"memory_peak_sum_bytes", "Sum of reported positive job memory peaks in the selected window.", "3145728"},
+		{"jobs", "Completed job count in the selected hourly-bucket window.", "2"},
+	} {
+		name := "windmill_runnable_window_" + metric.name
+		expected := fmt.Sprintf("# HELP %s %s\n# TYPE %s gauge\n%s{windmill_runnable_path=\"f/task\",windmill_worker_group=\"default\",windmill_workspace_id=\"test\"} %s\n", name, metric.help, name, name, metric.value)
+		if err := testutil.GatherAndCompare(metrics, strings.NewReader(expected), name, name+"_total"); err != nil {
+			t.Error(err)
 		}
-		if !strings.Contains(response.Body.String(), "# TYPE windmill_runnable_window_"+name+" gauge") {
-			t.Error("not a gauge")
-		}
-	}
-	if strings.Contains(response.Body.String(), "_total") {
-		t.Fatal("window exposed as counter")
 	}
 }
 
