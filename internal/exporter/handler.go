@@ -15,6 +15,7 @@ import (
 	"github.com/dwalker-sabiogroup/windmill-exporter/internal/config"
 	"github.com/dwalker-sabiogroup/windmill-exporter/internal/windmill"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -117,6 +118,7 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		gauge("windmill_exporter_scrape_success", "Whether all enabled collectors succeeded; not Windmill health.", boolean(success), nil),
 		gauge("windmill_exporter_scrape_duration_seconds", "Time spent collecting all enabled endpoints before exposition.", time.Since(started).Seconds(), nil))
 	registry := prometheus.NewPedanticRegistry()
+	registry.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 	if err := registry.Register(metrics); err != nil {
 		handler.logger.Error("Metric registration failed")
 		http.Error(writer, "metric registration failed", http.StatusInternalServerError)
